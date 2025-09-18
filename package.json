@@ -1,0 +1,25 @@
+{
+  "name": "reposnap",
+  "version": "1.0.0",
+  "description": "snapshot of repo",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anglerfishlyy/RepoSnap.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/anglerfishlyy/RepoSnap/issues"
+  },
+  "homepage": "https://github.com/anglerfishlyy/RepoSnap#readme",
+  "dependencies": {
+    "clipboardy": "^4.0.0",
+    "commander": "^14.0.1",
+    "ignore": "^7.0.5"
+  }
+}
