@@ -7,13 +7,19 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "bin": {
-    "reposnap": "bin/reposnap.js"
+  
+  "core": {
+    "reposnap": "core/reposnap-core.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/anglerfishlyy/RepoSnap.git"
   },
+  "files": [
+  "dist",
+  "../../core"
+]
+  ,
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -25,5 +31,8 @@
     "clipboardy": "^4.0.0",
     "commander": "^14.0.1",
     "ignore": "^7.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2"
   }
 }
