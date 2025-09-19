@@ -1,7 +1,22 @@
 import fs from "fs/promises";
 import path from "path";
 
-const IGNORE_DIRS = [".git", "node_modules"];
+// Default ignored files/folders
+const DEFAULT_IGNORE = [
+  ".git",
+  "node_modules",
+  ".DS_Store",
+  "Thumbs.db",
+];
+const DEFAULT_IGNORE_EXT = /\.(dll|exe|bin|pak|msg|json|ico)$/i;
+
+function defaultIgnore(name) {
+  return (
+    DEFAULT_IGNORE.includes(name) ||
+    name.startsWith(".") ||
+    DEFAULT_IGNORE_EXT.test(name)
+  );
+}
 
 async function readDirSorted(p) {
   const entries = await fs.readdir(p, { withFileTypes: true });
@@ -11,11 +26,6 @@ async function readDirSorted(p) {
     return a.name.localeCompare(b.name);
   });
   return entries;
-}
-
-function defaultIgnore(name) {
-  // Ignore git, node_modules, hidden files/folders
-  return IGNORE_DIRS.includes(name) || name.startsWith(".");
 }
 
 async function buildLines(
@@ -31,7 +41,7 @@ async function buildLines(
 
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
-    if (ignoreFn(e.name)) continue; // use ignoreFn
+    if (ignoreFn(e.name)) continue;
 
     const isLast = i === entries.length - 1;
     const branch = prefix + (isLast ? "└── " : "├── ");
@@ -55,7 +65,17 @@ async function buildLines(
   return lines;
 }
 
-export async function snapRepo(rootDir = process.cwd(), depth = Infinity, includeFiles = true, ignoreFn) {
+export async function snapRepo(
+  rootDir = process.cwd(),
+  depth = Infinity,
+  includeFiles = true,
+  ignoreFn = defaultIgnore
+) {
   const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn);
   return lines.join("\n");
+}
+
+// Allow running directly via Node for testing
+if (import.meta.url === `file://${process.argv[1]}`) {
+  snapRepo().then(console.log).catch(console.error);
 }

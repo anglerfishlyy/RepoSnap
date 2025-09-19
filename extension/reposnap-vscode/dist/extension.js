@@ -35,6 +35,9 @@ var reposnap_core_exports = {};
 __export(reposnap_core_exports, {
   snapRepo: () => snapRepo
 });
+function defaultIgnore(name) {
+  return DEFAULT_IGNORE.includes(name) || name.startsWith(".") || DEFAULT_IGNORE_EXT.test(name);
+}
 async function readDirSorted(p) {
   const entries = await import_promises.default.readdir(p, { withFileTypes: true });
   entries.sort((a, b) => {
@@ -43,9 +46,6 @@ async function readDirSorted(p) {
     return a.name.localeCompare(b.name);
   });
   return entries;
-}
-function defaultIgnore(name) {
-  return IGNORE_DIRS.includes(name) || name.startsWith(".");
 }
 async function buildLines(dir, prefix = "", depth = Infinity, includeFiles = true, ignoreFn = defaultIgnore) {
   if (depth < 0) return [];
@@ -73,16 +73,26 @@ async function buildLines(dir, prefix = "", depth = Infinity, includeFiles = tru
   }
   return lines;
 }
-async function snapRepo(rootDir = process.cwd(), depth = Infinity, includeFiles = true, ignoreFn) {
+async function snapRepo(rootDir = process.cwd(), depth = Infinity, includeFiles = true, ignoreFn = defaultIgnore) {
   const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn);
   return lines.join("\n");
 }
-var import_promises, import_path, IGNORE_DIRS;
+var import_promises, import_path, import_meta, DEFAULT_IGNORE, DEFAULT_IGNORE_EXT;
 var init_reposnap_core = __esm({
   "../../core/reposnap-core.js"() {
     import_promises = __toESM(require("fs/promises"), 1);
     import_path = __toESM(require("path"), 1);
-    IGNORE_DIRS = [".git", "node_modules"];
+    import_meta = {};
+    DEFAULT_IGNORE = [
+      ".git",
+      "node_modules",
+      ".DS_Store",
+      "Thumbs.db"
+    ];
+    DEFAULT_IGNORE_EXT = /\.(dll|exe|bin|pak|msg|json|ico)$/i;
+    if (import_meta.url === `file://${process.argv[1]}`) {
+      snapRepo().then(console.log).catch(console.error);
+    }
   }
 });
 
@@ -95,25 +105,35 @@ __export(extension_exports, {
 module.exports = __toCommonJS(extension_exports);
 var vscode = __toESM(require("vscode"));
 function activate(context) {
-  const disposable = vscode.commands.registerCommand(
-    "reposnap-vscode.snapRepo",
-    async () => {
-      try {
-        const { snapRepo: snapRepo2 } = await Promise.resolve().then(() => (init_reposnap_core(), reposnap_core_exports));
-        const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
-        const snapshot = await snapRepo2(folder, Infinity, true, (name) => {
-          return name.startsWith(".") || name === "node_modules" || name === ".git";
-        });
-        const doc = await vscode.workspace.openTextDocument({
-          content: snapshot,
-          language: "plaintext"
-        });
-        await vscode.window.showTextDocument(doc, { preview: false });
-      } catch (err) {
-        vscode.window.showErrorMessage(`[RepoSnap] Error: ${err.message}`);
-      }
+  const disposable = vscode.commands.registerCommand("reposnap-vscode.snapRepo", async () => {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
+      vscode.window.showErrorMessage("No workspace folder open.");
+      return;
     }
-  );
+    const folder = folders[0].uri.fsPath;
+    try {
+      const ignoreFn = (name) => {
+        const hiddenOrIgnored = [
+          ".git",
+          "node_modules",
+          ".DS_Store",
+          "Thumbs.db"
+        ];
+        const systemExt = /\.(dll|exe|bin|pak|msg|json|ico)$/i;
+        return name.startsWith(".") || hiddenOrIgnored.includes(name) || systemExt.test(name);
+      };
+      const { snapRepo: snapRepo2 } = await Promise.resolve().then(() => (init_reposnap_core(), reposnap_core_exports));
+      const snapshot = await snapRepo2(folder, Infinity, true, ignoreFn);
+      const doc = await vscode.workspace.openTextDocument({
+        content: snapshot,
+        language: "plaintext"
+      });
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+      vscode.window.showErrorMessage("RepoSnap error: " + (typeof e === "object" && e !== null && "message" in e ? e.message : String(e)));
+    }
+  });
   context.subscriptions.push(disposable);
 }
 function deactivate() {
