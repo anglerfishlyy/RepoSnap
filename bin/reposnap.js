@@ -32,9 +32,10 @@ const extensions = options.extensions ? options.extensions.split(",").map((s) =>
 
 const ignoreFn = makeIgnoreFn(excludes, extensions);
 
+// Run CLI
 (async () => {
   try {
-    const snapshot = await snapRepo(process.cwd(), options.depth, true, ignoreFn);
+    const snapshot = await snapRepo(process.cwd(), options.depth, true, ignoreFn, options);
     console.log(snapshot);
   } catch (e) {
     console.error("RepoSnap error:", e.message || e);

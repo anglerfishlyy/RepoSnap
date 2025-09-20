@@ -36,7 +36,8 @@ async function buildLines(
   includeFiles = true,
   ignoreFn = defaultIgnore,
   ign = null,
-  root = dir
+  root = dir,
+  opts = {}   // <-- add opts here
 ) {
   if (depth < 0) return [];
   const entries = await readDirSorted(dir);
@@ -44,35 +45,51 @@ async function buildLines(
 
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
-    const rel = path.relative(root, path.join(dir, e.name));
+    const name = e.name;
+    const rel = path.relative(root, path.join(dir, name));
 
     // Step 3: Apply ignore check
-    if (ignoreFn(e.name)) continue;
+    if (ignoreFn(name)) continue;
     if (ign && ign.ignores(rel)) continue;
+
+    // Step 5: Apply filters
+    if (opts.extensions) {
+      const allowed = opts.extensions.split(",").map((ext) => ext.trim());
+      if (!e.isDirectory() && !allowed.some((ext) => name.endsWith(ext))) {
+        continue;
+      }
+    }
+
+    if (opts.exclude) {
+      const excluded = opts.exclude.split(",").map((ex) => ex.trim());
+      if (excluded.includes(name)) continue;
+    }
 
     const isLast = i === entries.length - 1;
     const branch = prefix + (isLast ? "└── " : "├── ");
 
     if (e.isDirectory()) {
-      lines.push(branch + "📂 " + e.name);
+      lines.push(branch + "📂 " + name);
       const childPrefix = prefix + (isLast ? "    " : "│   ");
       const childLines = await buildLines(
-        path.join(dir, e.name),
+        path.join(dir, name),
         childPrefix,
         depth - 1,
         includeFiles,
         ignoreFn,
         ign,
-        root
+        root,
+        opts   // <-- pass down opts
       );
       lines.push(...childLines);
     } else if (includeFiles) {
-      lines.push(branch + e.name);
+      lines.push(branch + name);
     }
   }
 
   return lines;
 }
+
 
 async function loadIgnore(root, filenames = [".structignore", ".gitignore"]) {
   const igEngine = ig();
@@ -91,12 +108,14 @@ export async function snapRepo(
   rootDir = process.cwd(),
   depth = Infinity,
   includeFiles = true,
-  ignoreFn = defaultIgnore
+  ignoreFn = defaultIgnore,
+  opts = {}
 ) {
-  const ign = await loadIgnore(rootDir); // ✅ load ignore engine
-  const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn, ign, rootDir);
+  const ign = await loadIgnore(rootDir);
+  const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn, ign, rootDir, opts);
   return lines.join("\n");
 }
+
 
 // Allow running directly via Node for testing
 if (import.meta.url === `file://${process.argv[1]}`) {
