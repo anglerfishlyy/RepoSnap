@@ -1,36 +1,41 @@
+import * as vscode from "vscode";
+import { promisify } from "util";
+import { execFile } from "child_process";
+import * as path from "path";
 
-import * as vscode from 'vscode';
+const execFileP = promisify(execFile);
+
 export function activate(context: vscode.ExtensionContext) {
-  const disposable = vscode.commands.registerCommand('reposnap-vscode.snapRepo', async () => {
+  const disposable = vscode.commands.registerCommand("reposnap-vscode.snapRepo", async () => {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
-      vscode.window.showErrorMessage('No workspace folder open.');
+      vscode.window.showErrorMessage("No workspace folder open.");
       return;
     }
+
     const folder = folders[0].uri.fsPath;
+
     try {
-      // Custom ignore function: matches VS Code Explorer style
-      const ignoreFn = (name: string) => {
-        const hiddenOrIgnored = [
-          '.git',
-          'node_modules',
-          '.DS_Store',
-          'Thumbs.db',
-        ];
-        const systemExt = /\.(dll|exe|bin|pak|msg|json|ico)$/i;
-        return name.startsWith('.') || hiddenOrIgnored.includes(name) || systemExt.test(name);
-      };
-      const { snapRepo } = await import("../../../core/reposnap-core.js");
-      const snapshot = await snapRepo(folder, Infinity, true, ignoreFn);
+      // Path to CLI script
+      const cliPath = path.join(context.extensionPath, "bin", "reposnap.js");
+
+      // Run CLI with options (hardcoded depth=3 for now)
+      const { stdout } = await execFileP("node", [cliPath, "--depth", "3"], {
+        cwd: folder,
+      });
+
       const doc = await vscode.workspace.openTextDocument({
-        content: snapshot,
-        language: "plaintext",
+        content: stdout,
+        language: "markdown", // markdown looks nicer than plaintext
       });
       await vscode.window.showTextDocument(doc, { preview: false });
-    } catch (e) {
-      vscode.window.showErrorMessage('RepoSnap error: ' + (typeof e === 'object' && e !== null && 'message' in e ? (e.message as string) : String(e)));
+    } catch (e: any) {
+      vscode.window.showErrorMessage(
+        "RepoSnap error: " + (e?.message ?? String(e))
+      );
     }
   });
+
   context.subscriptions.push(disposable);
 }
 
