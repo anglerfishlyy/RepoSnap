@@ -7,7 +7,6 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  
   "core": {
     "reposnap": "core/reposnap-core.js"
   },
@@ -16,10 +15,9 @@
     "url": "git+https://github.com/anglerfishlyy/RepoSnap.git"
   },
   "files": [
-  "dist",
-  "../../core"
-]
-  ,
+    "dist",
+    "../../core"
+  ],
   "keywords": [],
   "author": "",
   "license": "ISC",
