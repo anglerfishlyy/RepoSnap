@@ -16,23 +16,21 @@ export function activate(context: vscode.ExtensionContext) {
     const folder = folders[0].uri.fsPath;
 
     try {
-      // Path to CLI script
+      // Path to CLI script bundled inside the extension
       const cliPath = path.join(context.extensionPath, "bin", "reposnap.js");
 
-      // Run CLI with options (hardcoded depth=3 for now)
+      // Hardcode depth=3 for testing (future: wire to extension settings)
       const { stdout } = await execFileP("node", [cliPath, "--depth", "3"], {
         cwd: folder,
       });
 
       const doc = await vscode.workspace.openTextDocument({
         content: stdout,
-        language: "markdown", // markdown looks nicer than plaintext
+        language: "markdown",
       });
       await vscode.window.showTextDocument(doc, { preview: false });
     } catch (e: any) {
-      vscode.window.showErrorMessage(
-        "RepoSnap error: " + (e?.message ?? String(e))
-      );
+      vscode.window.showErrorMessage("RepoSnap error: " + (e?.message ?? String(e)));
     }
   });
 

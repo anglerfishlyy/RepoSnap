@@ -1,8 +1,8 @@
+// core/reposnap-core.js
 import fs from "fs/promises";
 import path from "path";
 import ig from "ignore";
 
-// Default ignored files/folders
 const DEFAULT_IGNORE = [
   ".git",
   "node_modules",
@@ -29,43 +29,79 @@ async function readDirSorted(p) {
   return entries;
 }
 
+/**
+ * Load ignore rules from a list of filenames (relative to root).
+ * If filenames is empty or missing, nothing is loaded.
+ */
+async function loadIgnore(root, filenames = []) {
+  const igEngine = ig();
+  for (const file of filenames) {
+    if (!file) continue;
+    try {
+      // support absolute or relative passed filename
+      const filePath = path.isAbsolute(file) ? file : path.join(root, file);
+      const txt = await fs.readFile(filePath, "utf8");
+      igEngine.add(txt);
+    } catch {
+      // file not found / unreadable -> ignore silently
+    }
+  }
+  return igEngine;
+}
+
 async function buildLines(
   dir,
   prefix = "",
   depth = Infinity,
   includeFiles = true,
-  ignoreFn = defaultIgnore,
+  opts = {},
   ign = null,
-  root = dir,
-  opts = {}   // <-- add opts here
+  root = dir
 ) {
   if (depth < 0) return [];
   const entries = await readDirSorted(dir);
   const lines = [];
 
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
+  // Normalized option arrays (already prepared in snapRepo normally,
+  // but double-check here for safety)
+  const excludeArray = (opts.excludeArray || []).map((s) => s.trim());
+  const extensionsArray = (opts.extensionsArray || []).map((s) => s.trim().toLowerCase());
+
+  // Pre-filter visible entries at this level so we can compute "isLast"
+  const visible = [];
+  for (const e of entries) {
+    const name = e.name;
+
+    // Default ignores (dotfiles, .git, node_modules, binary ext)
+    if (defaultIgnore(name)) continue;
+
+    // exclude by name
+    if (excludeArray.length > 0 && excludeArray.includes(name)) continue;
+
+    // ignore engine (.gitignore / .structignore)
+    if (ign) {
+      const rel = path.relative(root, path.join(dir, name));
+      // ensure posix-style path for ignore matching
+      const relPosix = rel.split(path.sep).join("/");
+      if (ign.ignores(relPosix)) continue;
+    }
+
+    // extension filter: if extensionsArray is set, only allow files with those extensions
+    if (extensionsArray.length > 0 && !e.isDirectory()) {
+      const ext = path.extname(name).slice(1).toLowerCase(); // without dot
+      if (!extensionsArray.includes(ext)) continue;
+    }
+
+    visible.push(e);
+  }
+
+  for (let i = 0; i < visible.length; i++) {
+    const e = visible[i];
     const name = e.name;
     const rel = path.relative(root, path.join(dir, name));
+    const relPosix = rel.split(path.sep).join("/");
 
-    // Step 3: Apply ignore check
-    if (ignoreFn(name)) continue;
-    if (ign && ign.ignores(rel)) continue;
-
-    // Step 5: Apply filters
-    if (opts.extensions) {
-      const allowed = opts.extensions.split(",").map((ext) => ext.trim());
-      if (!e.isDirectory() && !allowed.some((ext) => name.endsWith(ext))) {
-        continue;
-      }
-    }
-
-    if (opts.exclude) {
-      const excluded = opts.exclude.split(",").map((ex) => ex.trim());
-      if (excluded.includes(name)) continue;
-    }
-
-    const isLast = i === entries.length - 1;
+    const isLast = i === visible.length - 1;
     const branch = prefix + (isLast ? "└── " : "├── ");
 
     if (e.isDirectory()) {
@@ -76,10 +112,9 @@ async function buildLines(
         childPrefix,
         depth - 1,
         includeFiles,
-        ignoreFn,
+        opts,
         ign,
-        root,
-        opts   // <-- pass down opts
+        root
       );
       lines.push(...childLines);
     } else if (includeFiles) {
@@ -90,34 +125,40 @@ async function buildLines(
   return lines;
 }
 
-
-async function loadIgnore(root, filenames = [".structignore", ".gitignore"]) {
-  const igEngine = ig();
-  for (const file of filenames) {
-    try {
-      const txt = await fs.readFile(path.join(root, file), "utf8");
-      igEngine.add(txt);
-    } catch {
-      // file not found, ignore
-    }
-  }
-  return igEngine;
-}
-
 export async function snapRepo(
   rootDir = process.cwd(),
   depth = Infinity,
   includeFiles = true,
-  ignoreFn = defaultIgnore,
   opts = {}
 ) {
-  const ign = await loadIgnore(rootDir);
-  const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn, ign, rootDir, opts);
+  // Normalize opts (ensure we have arrays ready)
+  const normalized = {
+    ...opts,
+    excludeArray: opts.exclude
+      ? opts.exclude.split(",").map((s) => s.trim())
+      : [],
+    extensionsArray: opts.extensions
+      ? opts.extensions.split(",").map((s) => s.trim().toLowerCase())
+      : [],
+  };
+
+  // load ignores: if user provided --ignore-file, prefer that (single file),
+  // otherwise load .structignore then .gitignore
+  const ignoreFilesToTry = [];
+  if (opts["ignore-file"] || opts.ignoreFile) {
+    // user-specified name (could be '.structignore' by default)
+    ignoreFilesToTry.push(opts["ignore-file"] || opts.ignoreFile);
+  } else {
+    ignoreFilesToTry.push(".structignore", ".gitignore");
+  }
+
+  const ign = await loadIgnore(rootDir, ignoreFilesToTry);
+
+  const lines = await buildLines(rootDir, "", depth, includeFiles, normalized, ign, rootDir);
   return lines.join("\n");
 }
 
-
-// Allow running directly via Node for testing
+// Allow running core directly for testing
 if (import.meta.url === `file://${process.argv[1]}`) {
   snapRepo().then(console.log).catch(console.error);
 }
