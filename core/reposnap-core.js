@@ -74,6 +74,23 @@ export async function snapRepo(
   const lines = await buildLines(rootDir, "", depth, includeFiles, ignoreFn);
   return lines.join("\n");
 }
+const fs = require('fs').promises;
+const path = require('path');
+const ig = require('ignore');
+
+async function loadIgnore(root, filenames = ['.structignore', '.gitignore']) {
+  const igEngine = ig();
+  for (const file of filenames) {
+    try {
+      const txt = await fs.readFile(path.join(root, file), 'utf8');
+      igEngine.add(txt);
+    } catch (e) {
+      // file not found, ignore
+    }
+  }
+  return igEngine;
+}
+
 
 // Allow running directly via Node for testing
 if (import.meta.url === `file://${process.argv[1]}`) {
