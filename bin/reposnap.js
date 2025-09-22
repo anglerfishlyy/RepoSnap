@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { program } from "commander";
 import { snapRepo } from "../core/reposnap-core.js";
-import path from "path";
 
 // Configure CLI options
 program
@@ -9,33 +8,17 @@ program
   .option("--extensions <exts>", "comma-separated list of extensions to include")
   .option("--exclude <names>", "comma-separated list of file/folder names to exclude")
   .option("--ignore-file <file>", "custom ignore file", ".structignore")
-  .option("--format <fmt>", "output format: plain or markdown", "plain");
-
+  .option("--format <fmt>", "output format: plain or markdown", "plain")
+  .option("--size", "show file sizes")
+  .option("--loc", "count lines of code per file")
+  .option("--counts", "show summary counts (files, folders, total LOC)")
+  .option("--sample <n>", "include a content sample (first N lines per file)", (v) => parseInt(v, 10), 0);
 program.parse(process.argv);
 const options = program.opts();
 
-// Build custom ignore function
-function makeIgnoreFn(excludes = [], extensions = []) {
-  return function (name) {
-    // Exclude list
-    if (excludes.includes(name)) return true;
-    // Extension filter
-    if (extensions.length > 0) {
-      const ext = path.extname(name).slice(1); // remove dot
-      if (ext && !extensions.includes(ext)) return true;
-    }
-    return false;
-  };
-}
-
-const excludes = options.exclude ? options.exclude.split(",").map((s) => s.trim()) : [];
-const extensions = options.extensions ? options.extensions.split(",").map((s) => s.trim()) : [];
-
-const ignoreFn = makeIgnoreFn(excludes, extensions);
-
 (async () => {
   try {
-    const snapshot = await snapRepo(process.cwd(), options.depth, true, ignoreFn);
+    const snapshot = await snapRepo(process.cwd(), options.depth, true, options);
 
     if (options.format === "markdown") {
       console.log("```");
