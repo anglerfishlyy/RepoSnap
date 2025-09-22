@@ -52,8 +52,6 @@ function activate(context) {
       try {
         const cliPath = path.join(
           context.extensionPath,
-          "..",
-          "..",
           "bin",
           "reposnap.js"
         );

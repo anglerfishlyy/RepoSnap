@@ -18,16 +18,12 @@ export function activate(context: vscode.ExtensionContext) {
       const folder = folders[0].uri.fsPath;
 
       try {
-        // Path to CLI script
         const cliPath = path.join(
           context.extensionPath,
-          "..",
-          "..",
           "bin",
           "reposnap.js"
         );
 
-        // Run CLI with hardcoded options for now
         const { stdout } = await execFileP(
           "node",
           [cliPath, "--depth", "3", "--format", "markdown"],
