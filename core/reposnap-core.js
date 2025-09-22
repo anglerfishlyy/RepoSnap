@@ -1,7 +1,7 @@
-// core/reposnap-core.js
 import fs from "fs/promises";
 import path from "path";
 import ig from "ignore";
+import fsExtra from "fs";
 
 const DEFAULT_IGNORE = [
   ".git",
@@ -29,21 +29,16 @@ async function readDirSorted(p) {
   return entries;
 }
 
-/**
- * Load ignore rules from a list of filenames (relative to root).
- * If filenames is empty or missing, nothing is loaded.
- */
 async function loadIgnore(root, filenames = []) {
   const igEngine = ig();
   for (const file of filenames) {
     if (!file) continue;
     try {
-      // support absolute or relative passed filename
       const filePath = path.isAbsolute(file) ? file : path.join(root, file);
       const txt = await fs.readFile(filePath, "utf8");
       igEngine.add(txt);
     } catch {
-      // file not found / unreadable -> ignore silently
+      // silently ignore missing/unreadable
     }
   }
   return igEngine;
@@ -62,33 +57,24 @@ async function buildLines(
   const entries = await readDirSorted(dir);
   const lines = [];
 
-  // Normalized option arrays (already prepared in snapRepo normally,
-  // but double-check here for safety)
   const excludeArray = (opts.excludeArray || []).map((s) => s.trim());
   const extensionsArray = (opts.extensionsArray || []).map((s) => s.trim().toLowerCase());
 
-  // Pre-filter visible entries at this level so we can compute "isLast"
   const visible = [];
   for (const e of entries) {
     const name = e.name;
 
-    // Default ignores (dotfiles, .git, node_modules, binary ext)
     if (defaultIgnore(name)) continue;
-
-    // exclude by name
     if (excludeArray.length > 0 && excludeArray.includes(name)) continue;
 
-    // ignore engine (.gitignore / .structignore)
     if (ign) {
       const rel = path.relative(root, path.join(dir, name));
-      // ensure posix-style path for ignore matching
       const relPosix = rel.split(path.sep).join("/");
       if (ign.ignores(relPosix)) continue;
     }
 
-    // extension filter: if extensionsArray is set, only allow files with those extensions
     if (extensionsArray.length > 0 && !e.isDirectory()) {
-      const ext = path.extname(name).slice(1).toLowerCase(); // without dot
+      const ext = path.extname(name).slice(1).toLowerCase();
       if (!extensionsArray.includes(ext)) continue;
     }
 
@@ -98,9 +84,6 @@ async function buildLines(
   for (let i = 0; i < visible.length; i++) {
     const e = visible[i];
     const name = e.name;
-    const rel = path.relative(root, path.join(dir, name));
-    const relPosix = rel.split(path.sep).join("/");
-
     const isLast = i === visible.length - 1;
     const branch = prefix + (isLast ? "└── " : "├── ");
 
@@ -125,13 +108,36 @@ async function buildLines(
   return lines;
 }
 
+async function getFileStats(filePath, opts) {
+  const stats = await fs.stat(filePath);
+  const size = stats.size;
+
+  let loc = 0;
+  let sample = "";
+
+  if (opts.loc || opts.sample > 0) {
+    try {
+      const content = await fs.readFile(filePath, "utf8");
+      if (opts.loc) {
+        loc = content.split(/\r?\n/).length;
+      }
+      if (opts.sample > 0) {
+        sample = content.split(/\r?\n/).slice(0, opts.sample).join("\n");
+      }
+    } catch {
+      // ignore binary/unreadable files
+    }
+  }
+
+  return { size, loc, sample };
+}
+
 export async function snapRepo(
   rootDir = process.cwd(),
   depth = Infinity,
   includeFiles = true,
   opts = {}
 ) {
-  // Normalize opts (ensure we have arrays ready)
   const normalized = {
     ...opts,
     excludeArray: opts.exclude
@@ -142,23 +148,79 @@ export async function snapRepo(
       : [],
   };
 
-  // load ignores: if user provided --ignore-file, prefer that (single file),
-  // otherwise load .structignore then .gitignore
   const ignoreFilesToTry = [];
   if (opts["ignore-file"] || opts.ignoreFile) {
-    // user-specified name (could be '.structignore' by default)
     ignoreFilesToTry.push(opts["ignore-file"] || opts.ignoreFile);
   } else {
     ignoreFilesToTry.push(".structignore", ".gitignore");
   }
-
   const ign = await loadIgnore(rootDir, ignoreFilesToTry);
 
-  const lines = await buildLines(rootDir, "", depth, includeFiles, normalized, ign, rootDir);
-  return lines.join("\n");
-}
+  const lines = [];
+  let fileCount = 0, folderCount = 0, totalLOC = 0, totalSize = 0;
 
-// Allow running core directly for testing
-if (import.meta.url === `file://${process.argv[1]}`) {
-  snapRepo().then(console.log).catch(console.error);
+  async function walk(dir, prefix = "", depthLeft = depth) {
+    if (depthLeft < 0) return;
+    const entries = await readDirSorted(dir);
+    const visible = [];
+
+    for (const e of entries) {
+      const name = e.name;
+      if (defaultIgnore(name)) continue;
+      if (normalized.excludeArray.includes(name)) continue;
+
+      const rel = path.relative(rootDir, path.join(dir, name));
+      const relPosix = rel.split(path.sep).join("/");
+      if (ign.ignores(relPosix)) continue;
+
+      if (normalized.extensionsArray.length > 0 && !e.isDirectory()) {
+        const ext = path.extname(name).slice(1).toLowerCase();
+        if (!normalized.extensionsArray.includes(ext)) continue;
+      }
+      visible.push(e);
+    }
+
+    for (let i = 0; i < visible.length; i++) {
+      const e = visible[i];
+      const name = e.name;
+      const isLast = i === visible.length - 1;
+      const branch = prefix + (isLast ? "└── " : "├── ");
+
+      if (e.isDirectory()) {
+        folderCount++;
+        lines.push(branch + "📂 " + name);
+        await walk(path.join(dir, name), prefix + (isLast ? "    " : "│   "), depthLeft - 1);
+      } else {
+        fileCount++;
+        let line = branch + name;
+
+        if (opts.size || opts.loc || opts.sample > 0) {
+          const stats = await getFileStats(path.join(dir, name), opts);
+          if (opts.size) line += ` (${stats.size} bytes)`;
+          if (opts.loc) line += ` [${stats.loc} LOC]`;
+          if (opts.sample > 0 && stats.sample) {
+            line += `\n${prefix}    --- sample ---\n` +
+              stats.sample
+                .split("\n")
+                .map((l) => prefix + "    " + l)
+                .join("\n") +
+              "\n" + prefix + "    --- end sample ---";
+          }
+          totalSize += stats.size;
+          totalLOC += stats.loc;
+        }
+
+        lines.push(line);
+      }
+    }
+  }
+
+  await walk(rootDir);
+
+  if (opts.counts) {
+    lines.push("");
+    lines.push(`📊 Summary: ${fileCount} files, ${folderCount} folders, ${totalLOC} total LOC, ${totalSize} bytes`);
+  }
+
+  return lines.join("\n");
 }
